@@ -131,6 +131,31 @@ body { font-family:'Be Vietnam Pro',sans-serif; background:var(--bg); color:var(
   .result-stats { grid-template-columns:1fr 1fr 1fr; }
   .header-title { font-size:0.9rem; }
 }
+
+/* Custom Modal */
+.modal-overlay { display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.5); z-index:9999; align-items:center; justify-content:center; backdrop-filter:blur(3px); }
+.modal-overlay.active { display:flex; }
+.modal-box { background:white; border-radius:16px; padding:0; max-width:420px; width:90%; box-shadow:0 20px 60px rgba(0,0,0,0.3); animation:modalIn 0.25s ease; overflow:hidden; }
+@keyframes modalIn { from{opacity:0;transform:scale(0.9) translateY(20px);} to{opacity:1;transform:scale(1) translateY(0);} }
+.modal-header { display:flex; justify-content:space-between; align-items:center; padding:16px 20px; border-bottom:1px solid #F0F0F0; }
+.modal-header-title { font-weight:700; font-size:1.05rem; color:var(--navy); display:flex; align-items:center; gap:8px; }
+.modal-close { width:32px; height:32px; border-radius:50%; border:none; background:#F5F5F5; cursor:pointer; font-size:1.1rem; display:flex; align-items:center; justify-content:center; transition:all 0.15s; color:#888; }
+.modal-close:hover { background:#FFEBEE; color:var(--danger); }
+.modal-body { padding:20px 24px; font-size:0.95rem; line-height:1.7; color:#444; }
+.modal-footer { display:flex; justify-content:flex-end; gap:10px; padding:16px 20px; border-top:1px solid #F0F0F0; background:#FAFAFA; }
+.modal-btn { padding:10px 24px; border-radius:8px; border:none; font-weight:600; font-size:0.9rem; cursor:pointer; font-family:inherit; transition:all 0.15s; }
+.modal-btn:hover { transform:translateY(-1px); }
+.modal-btn-cancel { background:#F0F0F0; color:#555; }
+.modal-btn-cancel:hover { background:#E0E0E0; }
+.modal-btn-confirm { background:var(--danger); color:white; box-shadow:0 2px 8px rgba(231,76,60,0.3); }
+.modal-btn-confirm:hover { background:#C0392B; }
+.modal-btn-primary { background:var(--blue); color:white; }
+.modal-btn-primary:hover { background:#2471A3; }
+.modal-icon { font-size:2.5rem; text-align:center; margin-bottom:8px; }
+.modal-stats { display:flex; gap:12px; justify-content:center; margin:12px 0; }
+.modal-stat { text-align:center; padding:8px 16px; border-radius:8px; }
+.modal-stat .num { font-size:1.3rem; font-weight:800; }
+.modal-stat .lbl { font-size:0.75rem; color:var(--text-light); }
 </style>
 </head>
 <body>
@@ -201,7 +226,10 @@ body { font-family:'Be Vietnam Pro',sans-serif; background:var(--bg); color:var(
     <div id="questionArea"></div>
     <div class="q-nav-bottom">
       <button class="btn btn-outline" id="btnPrev" onclick="prevQ()">← Trước</button>
-      <button class="btn btn-outline" id="btnSubmit" onclick="showSummary()">📋 Tóm tắt</button>
+      <div style="display:flex;gap:8px;">
+        <button class="btn btn-outline" onclick="showSummary()">📋 Tóm tắt</button>
+        <button class="btn btn-danger" onclick="confirmSubmit()" style="font-size:0.95rem;">📤 Nộp bài</button>
+      </div>
       <button class="btn btn-primary" id="btnNext" onclick="nextQ()">Tiếp →</button>
     </div>
   </div>
@@ -220,7 +248,7 @@ body { font-family:'Be Vietnam Pro',sans-serif; background:var(--bg); color:var(
     <div class="summary-footer">
       <div style="font-size:0.85rem;color:#666;margin-bottom:8px;">Kiểm tra kỹ trước khi nộp!</div>
       <button class="btn btn-outline" onclick="closeSummary()" style="margin-right:8px;">← Quay lại làm bài</button>
-      <button class="btn btn-danger" onclick="submitExam()" style="padding:12px 32px;font-size:1rem;">📤 Nộp bài</button>
+      <button class="btn btn-danger" onclick="confirmSubmit()" style="padding:12px 32px;font-size:1rem;">📤 Nộp bài</button>
     </div>
   </div>
 </div>
@@ -233,6 +261,17 @@ body { font-family:'Be Vietnam Pro',sans-serif; background:var(--bg); color:var(
 <!-- PAGE: HISTORY -->
 <div class="page" id="pageHistory">
   <div class="history-container" id="historyArea"></div>
+</div>
+
+<div class="modal-overlay" id="modalOverlay">
+  <div class="modal-box">
+    <div class="modal-header">
+      <div class="modal-header-title" id="modalTitle">Xác nhận</div>
+      <button class="modal-close" onclick="closeModal()">✕</button>
+    </div>
+    <div class="modal-body" id="modalBody"></div>
+    <div class="modal-footer" id="modalFooter"></div>
+  </div>
 </div>
 
 <div style="text-align:center;padding:1rem;font-size:0.75rem;color:var(--text-light);">
@@ -474,6 +513,69 @@ function showSummary() {
 function closeSummary() { showPage('Exam'); }
 
 // ============ SUBMIT & GRADE ============
+let modalCallback = null;
+
+function showModal(options) {
+  const overlay = document.getElementById('modalOverlay');
+  const title = document.getElementById('modalTitle');
+  const body = document.getElementById('modalBody');
+  const footer = document.getElementById('modalFooter');
+
+  title.innerHTML = (options.icon || '') + ' ' + (options.title || 'Xác nhận');
+  body.innerHTML = options.body || '';
+
+  let btns = '';
+  if (options.cancelText !== false) {
+    btns += '<button class="modal-btn modal-btn-cancel" onclick="closeModal()">' + (options.cancelText || 'Hủy') + '</button>';
+  }
+  if (options.confirmText) {
+    const cls = options.danger ? 'modal-btn-confirm' : 'modal-btn-primary';
+    btns += '<button class="modal-btn ' + cls + '" onclick="closeModal(true)">' + options.confirmText + '</button>';
+  }
+  footer.innerHTML = btns;
+
+  modalCallback = options.onConfirm || null;
+  overlay.classList.add('active');
+}
+
+function closeModal(confirmed) {
+  document.getElementById('modalOverlay').classList.remove('active');
+  if (confirmed && modalCallback) modalCallback();
+  modalCallback = null;
+}
+
+// Close on overlay click
+document.getElementById('modalOverlay')?.addEventListener('click', function(e) {
+  if (e.target === this) closeModal();
+});
+
+function confirmSubmit() {
+  const answered = Object.keys(state.answers).length;
+  const total = state.questions.length;
+  const unanswered = total - answered;
+
+  let bodyHtml = '<div class="modal-icon">📝</div>';
+  bodyHtml += '<div class="modal-stats">';
+  bodyHtml += '<div class="modal-stat" style="background:#E8F5E9;"><div class="num" style="color:var(--success);">' + answered + '</div><div class="lbl">Đã làm</div></div>';
+  bodyHtml += '<div class="modal-stat" style="background:#FFEBEE;"><div class="num" style="color:var(--danger);">' + unanswered + '</div><div class="lbl">Chưa làm</div></div>';
+  bodyHtml += '<div class="modal-stat" style="background:#E3F2FD;"><div class="num" style="color:var(--blue);">' + total + '</div><div class="lbl">Tổng câu</div></div>';
+  bodyHtml += '</div>';
+
+  if (unanswered > 0) {
+    bodyHtml += '<div style="text-align:center;color:var(--danger);font-weight:600;margin-top:8px;">⚠️ Còn ' + unanswered + ' câu chưa trả lời!</div>';
+  }
+  bodyHtml += '<div style="text-align:center;color:#666;font-size:0.88rem;margin-top:8px;">Sau khi nộp bài sẽ không thể làm lại.</div>';
+
+  showModal({
+    icon: '📤', title: 'Nộp bài thi',
+    body: bodyHtml,
+    confirmText: '📤 Nộp bài ngay',
+    cancelText: '← Tiếp tục làm bài',
+    danger: true,
+    onConfirm: submitExam
+  });
+}
+
 function submitExam() {
   if (state.timer) clearInterval(state.timer);
 
@@ -604,10 +706,17 @@ function showHistory() {
 }
 
 function clearHistory() {
-  if (confirm('Xóa toàn bộ lịch sử luyện tập?')) {
-    localStorage.removeItem('oly_practice_history');
-    showHistory();
-  }
+  showModal({
+    icon: '🗑️', title: 'Xóa lịch sử',
+    body: '<div class="modal-icon">🗑️</div><div style="text-align:center;">Xóa toàn bộ lịch sử luyện tập?<br><span style="font-size:0.85rem;color:#999;">Hành động này không thể hoàn tác.</span></div>',
+    confirmText: 'Xóa tất cả',
+    cancelText: 'Giữ lại',
+    danger: true,
+    onConfirm: function() {
+      localStorage.removeItem('oly_practice_history');
+      showHistory();
+    }
+  });
 }
 
 function goHome() {

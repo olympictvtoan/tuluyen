@@ -204,6 +204,20 @@ body { font-family:'Be Vietnam Pro',sans-serif; background:var(--bg); color:var(
         </div>
         <button class="btn btn-primary" onclick="doLogin()" style="width:100%;padding:12px;font-size:1rem;margin-top:0.5rem;">🔑 Đăng nhập</button>
         <div style="margin-top:0.75rem;font-size:0.82rem;color:var(--text-light);">Chưa có mã? Bấm <strong>"📝 Đăng ký mới"</strong> phía trên.</div>
+        <div style="margin-top:0.5rem;"><button onclick="showForgotCode()" style="background:none;border:none;color:var(--blue);font-size:0.85rem;cursor:pointer;text-decoration:underline;font-family:inherit;">🔍 Quên mã? Tra cứu tại đây</button></div>
+        <div id="forgotCodeArea" style="display:none;margin-top:1rem;padding:1rem;background:#F0F4FF;border-radius:10px;text-align:left;">
+          <div style="font-weight:700;color:var(--navy);margin-bottom:0.5rem;">🔍 Tra cứu mã học sinh</div>
+          <div class="form-group" style="margin-bottom:0.5rem;">
+            <label class="form-label">Họ và tên</label>
+            <input class="form-input" id="forgotName" placeholder="Nhập đúng tên đã đăng ký">
+          </div>
+          <div class="form-group" style="margin-bottom:0.5rem;">
+            <label class="form-label">SĐT phụ huynh</label>
+            <input class="form-input" id="forgotPhone" placeholder="SĐT đã đăng ký">
+          </div>
+          <button class="btn btn-primary" onclick="doForgotCode()" style="width:100%;padding:10px;">🔍 Tìm mã</button>
+          <div id="forgotResult" style="margin-top:0.5rem;font-size:0.9rem;display:none;"></div>
+        </div>
       </div>
 
       <!-- REGISTER FORM -->
@@ -431,8 +445,19 @@ async function doRegister() {
       state.student = res.student;
       state.history = [];
       localStorage.setItem('oly_tl_student', JSON.stringify(res.student));
-      showLoginError('✅ Đăng ký thành công! Mã của bạn: <strong style="font-size:1.3rem;color:var(--navy);">' + res.student.id + '</strong><br>Hãy ghi nhớ mã này để đăng nhập lần sau!', 'success');
-      setTimeout(() => enterHome(), 3000);
+      // Show code prominently - NO auto redirect
+      document.getElementById('formRegister').innerHTML = ''
+        + '<div style="text-align:center;padding:1rem;">'
+        + '<div style="font-size:3rem;margin-bottom:0.5rem;">🎉</div>'
+        + '<div style="font-size:1.1rem;font-weight:700;color:var(--success);margin-bottom:1rem;">Đăng ký thành công!</div>'
+        + '<div style="background:var(--navy);color:white;padding:16px;border-radius:12px;margin:1rem 0;">'
+        + '<div style="font-size:0.8rem;opacity:0.7;">Mã học sinh của bạn</div>'
+        + '<div style="font-size:2.2rem;font-weight:800;letter-spacing:3px;margin:4px 0;">' + res.student.id + '</div>'
+        + '<button onclick="navigator.clipboard.writeText(\'' + res.student.id + '\');this.textContent=\'✅ Đã copy!\';setTimeout(()=>this.textContent=\'📋 Copy mã\',2000)" style="margin-top:8px;padding:6px 20px;background:var(--gold);color:var(--navy);border:none;border-radius:6px;font-weight:700;cursor:pointer;font-family:inherit;">📋 Copy mã</button>'
+        + '</div>'
+        + '<div style="background:#FFF3E0;padding:10px;border-radius:8px;font-size:0.85rem;color:#E65100;margin:1rem 0;">⚠️ <strong>Hãy ghi nhớ hoặc chụp ảnh mã này!</strong><br>Bạn cần mã để đăng nhập lần sau.</div>'
+        + '<button class="btn btn-primary" onclick="enterHome()" style="width:100%;padding:12px;font-size:1rem;margin-top:0.5rem;">✅ Tôi đã ghi nhớ — Tiếp tục</button>'
+        + '</div>';
     } else {
       showLoginError('❌ ' + (res.error || 'Đăng ký thất bại'));
     }
@@ -465,6 +490,42 @@ async function doLogin() {
   } catch(e) {
     showLoginError('❌ Lỗi kết nối: ' + e.message);
   }
+}
+
+// ============ FORGOT CODE ============
+function showForgotCode() {
+  const area = document.getElementById('forgotCodeArea');
+  area.style.display = area.style.display === 'none' ? 'block' : 'none';
+}
+
+async function doForgotCode() {
+  const name = document.getElementById('forgotName').value.trim();
+  const phone = document.getElementById('forgotPhone').value.trim();
+  if (!name) return showForgotResult('Nhập họ tên!', false);
+  if (!phone) return showForgotResult('Nhập SĐT phụ huynh!', false);
+
+  showForgotResult('⏳ Đang tìm...', true);
+  try {
+    const url = GAS_URL + '?action=tlForgotCode&name=' + encodeURIComponent(name) + '&phone=' + encodeURIComponent(phone);
+    const res = await fetch(url);
+    const data = await res.json();
+    if (data.success && data.id) {
+      showForgotResult('✅ Mã của bạn: <strong style="font-size:1.3rem;color:var(--navy);">' + data.id + '</strong>', true);
+      document.getElementById('loginId').value = data.id;
+      document.getElementById('loginName').value = name;
+    } else {
+      showForgotResult('❌ ' + (data.error || 'Không tìm thấy. Kiểm tra lại tên và SĐT.'), false);
+    }
+  } catch(e) {
+    showForgotResult('❌ Lỗi kết nối: ' + e.message, false);
+  }
+}
+
+function showForgotResult(msg, ok) {
+  const el = document.getElementById('forgotResult');
+  el.innerHTML = msg;
+  el.style.display = 'block';
+  el.style.color = ok ? '#2E7D32' : '#C62828';
 }
 
 // ============ HOME ============

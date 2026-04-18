@@ -191,7 +191,7 @@ body { font-family:'Be Vietnam Pro',sans-serif; background:var(--bg); color:var(
       <div class="header-sub">Tự luyện · Cấp tiểu học 2026</div>
     </div>
   </div>
-  <div class="header-right">
+  <div class="header-right" id="headerNav" style="display:none;">
     <button class="btn-history" onclick="showHistory()">📊 Lịch sử</button>
     <button class="btn-history" onclick="goHome()">🏠 Trang chủ</button>
   </div>
@@ -437,14 +437,26 @@ function switchTab(tab) {
 }
 
 // ============ GAS CALL ============
-async function gasCall(action, postData) {
+async function gasCall(action, postData, timeoutMs) {
   if (!GAS_URL) throw new Error('GAS URL chưa cấu hình');
-  if (postData) {
-    const res = await fetch(GAS_URL, { method: 'POST', body: JSON.stringify({ action, ...postData }) });
-    return await res.json();
-  } else {
-    const res = await fetch(GAS_URL + '?action=' + action);
-    return await res.json();
+  timeoutMs = timeoutMs || 30000; // 30s mặc định
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    let res;
+    if (postData) {
+      res = await fetch(GAS_URL, { method: 'POST', body: JSON.stringify({ action, ...postData }), redirect: 'follow', signal: controller.signal });
+    } else {
+      res = await fetch(GAS_URL + '?action=' + action, { redirect: 'follow', signal: controller.signal });
+    }
+    clearTimeout(timer);
+    const text = await res.text();
+    try { return JSON.parse(text); }
+    catch(e) { throw new Error('Máy chủ trả về dữ liệu không hợp lệ'); }
+  } catch(e) {
+    clearTimeout(timer);
+    if (e.name === 'AbortError') throw new Error('Máy chủ phản hồi chậm (quá ' + Math.round(timeoutMs/1000) + ' giây). Vui lòng thử lại.');
+    throw e;
   }
 }
 
@@ -457,9 +469,17 @@ async function doRegister() {
   if (!name) return showLoginError('Vui lòng nhập họ tên!');
   if (!lop) return showLoginError('Vui lòng nhập lớp!');
 
-  showLoginError('⏳ Đang đăng ký...', 'success');
+  // Hiển thị đếm giây để user biết hệ thống đang chạy
+  let elapsed = 0;
+  const countTimer = setInterval(() => {
+    elapsed++;
+    showLoginError('⏳ Đang đăng ký... (' + elapsed + 's) — máy chủ Google có thể cần 5-15 giây cho lần đầu', 'success');
+  }, 1000);
+  showLoginError('⏳ Đang đăng ký... (0s)', 'success');
+
   try {
-    const res = await gasCall('tlRegister', { name, lop, school, phone, deviceId: genDeviceId() });
+    const res = await gasCall('tlRegister', { name, lop, school, phone, deviceId: genDeviceId() }, 30000);
+    clearInterval(countTimer);
     if (res.success && res.student) {
       state.student = res.student;
       state.history = [];
@@ -481,7 +501,8 @@ async function doRegister() {
       showLoginError('❌ ' + (res.error || 'Đăng ký thất bại'));
     }
   } catch(e) {
-    showLoginError('❌ Lỗi kết nối: ' + e.message);
+    clearInterval(countTimer);
+    showLoginError('❌ ' + (e.message || 'Lỗi kết nối. Vui lòng kiểm tra mạng và thử lại.'));
   }
 }
 
@@ -492,11 +513,15 @@ async function doLogin() {
   if (!id) return showLoginError('Vui lòng nhập mã học sinh!');
   if (!name) return showLoginError('Vui lòng nhập họ tên!');
 
-  showLoginError('⏳ Đang đăng nhập...', 'success');
+  let elapsed = 0;
+  const countTimer = setInterval(() => {
+    elapsed++;
+    showLoginError('⏳ Đang đăng nhập... (' + elapsed + 's)', 'success');
+  }, 1000);
+  showLoginError('⏳ Đang đăng nhập... (0s)', 'success');
   try {
-    const url = GAS_URL + '?action=tlLogin&id=' + encodeURIComponent(id) + '&name=' + encodeURIComponent(name) + '&deviceId=' + encodeURIComponent(genDeviceId());
-    const res = await fetch(url);
-    const data = await res.json();
+    const data = await gasCall('tlLogin&id=' + encodeURIComponent(id) + '&name=' + encodeURIComponent(name) + '&deviceId=' + encodeURIComponent(genDeviceId()), null, 30000);
+    clearInterval(countTimer);
     if (data.success) {
       state.student = data.student;
       state.history = data.history || [];
@@ -507,7 +532,8 @@ async function doLogin() {
       showLoginError('❌ ' + (data.error || 'Đăng nhập thất bại'));
     }
   } catch(e) {
-    showLoginError('❌ Lỗi kết nối: ' + e.message);
+    clearInterval(countTimer);
+    showLoginError('❌ ' + (e.message || 'Lỗi kết nối. Vui lòng kiểm tra mạng và thử lại.'));
   }
 }
 
@@ -549,7 +575,13 @@ function showForgotResult(msg, ok) {
 
 // ============ HOME ============
 function enterHome() {
-  if (!state.student) return;
+  if (!state.student) {
+    // Chưa đăng nhập → về màn hình đăng nhập và ẩn nav
+    document.getElementById('headerNav').style.display = 'none';
+    showPage('Login');
+    return;
+  }
+  document.getElementById('headerNav').style.display = 'flex';
   document.getElementById('homeWelcome').textContent = 'Xin chào, ' + state.student.name + '!';
   document.getElementById('homeInfo').textContent = '🔑 Mã: ' + state.student.id + '  |  📚 Lớp: ' + (state.student.lop || '---') + '  |  🏫 ' + (state.student.school || '---');
 
@@ -836,6 +868,7 @@ function showResult(score, correct, incorrect, unanswered, details, reason) {
 
 // ============ HISTORY ============
 function showHistory() {
+  if (!state.student) { enterHome(); return; }
   const h = state.history || [];
   let html = '<div class="question-card"><h2 style="color:var(--navy);margin-bottom:1rem;">📊 Lịch sử — ' + (state.student?.name||'') + '</h2>';
   if (!h.length) {
@@ -857,8 +890,14 @@ function showHistory() {
 }
 
 function goHome() {
-  if (state.timer) clearInterval(state.timer);
+  if (state.timer) { clearInterval(state.timer); state.timer = null; }
   examActive = false;
+  if (!state.student) {
+    // Chưa đăng nhập → quay về màn hình đăng nhập
+    document.getElementById('headerNav').style.display = 'none';
+    showPage('Login');
+    return;
+  }
   enterHome();
 }
 
